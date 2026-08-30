@@ -45,13 +45,15 @@ const work = [
 ];
 
 
-const leet = {
+// Default / fallback LeetCode data (kept in sync with last known values)
+const defaultLeet = {
   handle: "N1kh1L_A",
-  rank: "205,144",
+  rank: "206,533",
   rating: 1460,
-  solved: { total: 497, easy: 287, medium: 201, hard: 9 },
+  topPercentage: "58.36",
+  solved: { total: 502, easy: 290, medium: 203, hard: 9 },
   streak: 247,
-  contests: 47,
+  contests: 23,
   badges: ["200 Days"],
   recent: [
     { d: "M", ok: false }, { d: "T", ok: false }, { d: "W", ok: false },
@@ -76,18 +78,97 @@ const now = [
   "shipping → 3 side projects, 1 might survive",
 ];
 
-const stats = [
+const defaultStats = [
   { n: "50k", k: "lines shipped", s: "this year" },
-  { n: "28", k: "repos", s: "public on github" },
+  { n: "7", k: "repos", s: "public on github" },
   { n: "80", k: "commits", s: "past 365 days" },
   { n: "∞", k: "cups of coffee", s: "and counting" },
 ];
+
+// Helper: format a number with comma separator
+function fmtRank(n) {
+  return Number(n).toLocaleString("en-US");
+}
+
+// Compute "last 7 days" activity booleans from LeetCode submission calendar (epoch → count map)
+function recentFromCalendar(calendarJson) {
+  try {
+    const cal = typeof calendarJson === "string" ? JSON.parse(calendarJson) : calendarJson;
+    const days = ["S", "M", "T", "W", "T", "F", "S"];
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      d.setHours(0, 0, 0, 0);
+      const epoch = Math.floor(d.getTime() / 1000);
+      const ok = Object.keys(cal).some(
+        (k) => Math.abs(Number(k) - epoch) < 86400 && cal[k] > 0
+      );
+      return { d: days[d.getDay()], ok };
+    });
+  } catch {
+    return defaultLeet.recent;
+  }
+}
 
 
 function App() {
   const [time, setTime] = useState("");
   const [pos, setPos] = useState({ x: 0.5, y: 0.5 });
   const [active, setActive] = useState("top");
+  const [leet, setLeet] = useState(defaultLeet);
+  const [stats, setStats] = useState(defaultStats);
+
+  // Live-fetch LeetCode stats
+  useEffect(() => {
+    const BASE = "https://alfa-leetcode-api.onrender.com";
+    const handle = defaultLeet.handle;
+
+    Promise.all([
+      fetch(`${BASE}/${handle}`).then((r) => r.json()).catch(() => null),
+      fetch(`${BASE}/${handle}/solved`).then((r) => r.json()).catch(() => null),
+      fetch(`${BASE}/${handle}/contest`).then((r) => r.json()).catch(() => null),
+      fetch(`${BASE}/${handle}/calendar`).then((r) => r.json()).catch(() => null),
+    ]).then(([profile, solved, contest, calendar]) => {
+      if (!profile && !solved) return; // both failed — keep defaults
+      const total = solved?.solvedProblem ?? defaultLeet.solved.total;
+      const easy = solved?.easySolved ?? defaultLeet.solved.easy;
+      const medium = solved?.mediumSolved ?? defaultLeet.solved.medium;
+      const hard = solved?.hardSolved ?? defaultLeet.solved.hard;
+      const ranking = profile?.ranking ?? null;
+      const rating = contest?.contestRating ?? defaultLeet.rating;
+      const contestAttend = contest?.contestAttend ?? defaultLeet.contests;
+      const topPct = contest?.contestTopPercentage ?? null;
+      const calMap = calendar?.submissionCalendar ?? null;
+      const recent = calMap ? recentFromCalendar(calMap) : defaultLeet.recent;
+
+      setLeet({
+        handle,
+        rank: ranking ? fmtRank(ranking) : defaultLeet.rank,
+        rating: Math.round(rating),
+        topPercentage: topPct ? topPct.toFixed(2) : defaultLeet.topPercentage,
+        solved: { total, easy, medium, hard },
+        streak: defaultLeet.streak, // streak not exposed by this API
+        contests: contestAttend,
+        badges: defaultLeet.badges,
+        recent,
+      });
+    });
+  }, []);
+
+  // Live-fetch GitHub public repo count
+  useEffect(() => {
+    fetch("https://api.github.com/users/NikhilAmbure")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data?.public_repos) return;
+        setStats((prev) =>
+          prev.map((s) =>
+            s.k === "repos" ? { ...s, n: String(data.public_repos) } : s
+          )
+        );
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const tick = () =>
@@ -104,7 +185,6 @@ function App() {
     const m = (e) =>
       setPos({ x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight });
     window.addEventListener("mousemove", m);
-    return () => window.removeEventListener("mousemove", m);
     return () => window.removeEventListener("mousemove", m);
   }, []);
 
@@ -317,7 +397,7 @@ function App() {
               problems solved<br/>
               <span className="text-foreground/80">rating {leet.rating}</span>
               <span className="text-border"> · </span>
-              <span className="text-foreground/80">top 58.31%</span>
+              <span className="text-foreground/80">top {leet.topPercentage}%</span>
             </div>
           </div>
 
